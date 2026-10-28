@@ -1,0 +1,45 @@
+# Hämtar senaste Mac-versionen från leveransportalen och lägger upp den som en
+# release här. Knappen på blonda.studio/app pekar på
+# releases/latest/download/BLONDA-Portal.zip.
+name: Spegla senaste versionen
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spegla
+  cancel-in-progress: false
+
+jobs:
+  spegla:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hämta och publicera
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          curl -fsS https://portal.blonda.studio/api/app/uppdatering > info.json
+          VERSION=$(python3 -c 'import json; print(json.load(open("info.json"))["version"])')
+          SHA=$(python3 -c 'import json; print(json.load(open("info.json"))["sha256"])')
+          NOTER=$(python3 -c 'import json; print(json.load(open("info.json")).get("noter") or "")')
+          TAG="v$VERSION"
+          echo "Portalen anger $VERSION"
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "$TAG finns redan — inget att göra."
+            exit 0
+          fi
+          curl -fsSL "$(python3 -c 'import json; print(json.load(open("info.json"))["url"])')" -o BLONDA-Portal.zip
+          echo "$SHA  BLONDA-Portal.zip" | sha256sum -c -
+          cp BLONDA-Portal.zip "BLONDA-Portal-$VERSION.zip"
+          gh release create "$TAG" BLONDA-Portal.zip "BLONDA-Portal-$VERSION.zip" \
+            --repo "$REPO" --latest \
+            --title "BLONDA Portal $VERSION" \
+            --notes "$(printf 'BLONDA Portal för Mac, version %s.\n\n%s\n\nInstallera via https://blonda.studio/app' "$VERSION" "$NOTER")"
+          echo "Publicerade $TAG"
